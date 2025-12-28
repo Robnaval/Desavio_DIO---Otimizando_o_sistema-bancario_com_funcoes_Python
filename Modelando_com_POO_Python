@@ -1,0 +1,195 @@
+from abc import ABC, abstractmethod  # Classe abstrata (ABSTRAÇÃO)
+from datetime import date, datetime
+
+
+# =========================
+# CLASSES DE DOMÍNIO
+# =========================
+
+class PessoaFisica:
+    def __init__(self, cpf: str, nome: str, data_nascimento: date):
+        self.__cpf = cpf                # atributo privado
+        self.__nome = nome              # atributo privado
+        self.__data_nascimento = data_nascimento  # atributo privado
+
+    @property
+    def cpf(self):
+        return self.__cpf
+
+    @property
+    def nome(self):
+        return self.__nome
+
+
+class Cliente(PessoaFisica):  # HERANÇA
+    def __init__(self, cpf, nome, data_nascimento, endereco):
+        super().__init__(cpf, nome, data_nascimento)
+        self.__endereco = endereco      # atributo privado
+        self.__contas = []              # atributo privado
+
+    def adicionar_conta(self, conta):
+        self.__contas.append(conta)
+
+    def realizar_transacao(self, conta, transacao):
+        transacao.registrar(conta)      # POLIMORFISMO
+
+    @property
+    def contas(self):
+        return self.__contas
+
+
+class Conta:
+    AGENCIA_PADRAO = "0001"
+
+    def __init__(self, cliente: Cliente, numero: int):
+        self.__saldo = 0.0
+        self.__numero = numero
+        self.__agencia = Conta.AGENCIA_PADRAO
+        self.__cliente = cliente
+        self.__historico = Historico()
+
+    @classmethod
+    def nova_conta(cls, cliente: Cliente, numero: int):
+        return cls(cliente, numero)
+
+    def sacar(self, valor: float) -> bool:
+        if valor <= 0 or valor > self.__saldo:
+            return False
+        self.__saldo -= valor
+        return True
+
+    def depositar(self, valor: float) -> bool:
+        if valor <= 0:
+            return False
+        self.__saldo += valor
+        return True
+
+    @property
+    def saldo(self):
+        return self.__saldo
+
+    @property
+    def historico(self):
+        return self.__historico
+
+    @property
+    def numero(self):
+        return self.__numero
+
+
+class ContaCorrente(Conta):  # HERANÇA
+    def __init__(self, cliente, numero, limite=500.0, limite_saques=3):
+        super().__init__(cliente, numero)
+        self.__limite = limite
+        self.__limite_saques = limite_saques
+
+    def sacar(self, valor: float) -> bool:
+        saques_realizados = len([
+            t for t in self.historico.transacoes
+            if t["tipo"] == "Saque"
+        ])
+
+        if saques_realizados >= self.__limite_saques:
+            return False
+
+        if valor > self.__limite:
+            return False
+
+        return super().sacar(valor)
+
+
+# =========================
+# TRANSAÇÕES
+# =========================
+
+class Transacao(ABC):  # CLASSE ABSTRATA
+    @abstractmethod
+    def registrar(self, conta: Conta):
+        pass
+
+
+class Deposito(Transacao):
+    def __init__(self, valor: float):
+        self.__valor = valor
+
+    def registrar(self, conta: Conta):
+        if conta.depositar(self.__valor):
+            conta.historico.adicionar_transacao(self)
+
+
+class Saque(Transacao):
+    def __init__(self, valor: float):
+        self.__valor = valor
+
+    def registrar(self, conta: Conta):
+        if conta.sacar(self.__valor):
+            conta.historico.adicionar_transacao(self)
+
+
+# =========================
+# HISTÓRICO
+# =========================
+
+class Historico:
+    def __init__(self):
+        self.transacoes = []
+
+    def adicionar_transacao(self, transacao: Transacao):
+        self.transacoes.append({
+            "tipo": transacao.__class__.__name__,
+            "data": datetime.now()
+        })
+
+
+# =========================
+# FUNÇÕES DE MENU
+# =========================
+
+def criar_cliente(clientes):
+    cpf = input("CPF: ")
+    nome = input("Nome: ")
+    nascimento = date.fromisoformat(input("Data de nascimento (AAAA-MM-DD): "))
+    endereco = input("Endereço: ")
+
+    cliente = Cliente(cpf, nome, nascimento, endereco)
+    clientes.append(cliente)
+
+
+def criar_conta(clientes, contas):
+    cpf = input("CPF do cliente: ")
+    cliente = next((c for c in clientes if c.cpf == cpf), None)
+
+    if not cliente:
+        print("Cliente não encontrado.")
+        return
+
+    numero = len(contas) + 1
+    conta = ContaCorrente(cliente, numero)
+    cliente.adicionar_conta(conta)
+    contas.append(conta)
+
+
+def selecionar_conta(contas):
+    numero = int(input("Número da conta: "))
+    return next((c for c in contas if c.numero == numero), None)
+
+
+def depositar(contas):
+    conta = selecionar_conta(contas)
+    valor = float(input("Valor do depósito: "))
+    transacao = Deposito(valor)
+    transacao.registrar(conta)
+
+
+def sacar(contas):
+    conta = selecionar_conta(contas)
+    valor = float(input("Valor do saque: "))
+    transacao = Saque(valor)
+    transacao.registrar(conta)
+
+
+def extrato(contas):
+    conta = selecionar_conta(contas)
+    print(f"Saldo: R$ {conta.saldo:.2f}")
+    for t in conta.historico.transacoes:
+        print(f"{t['tipo']} - {t['data']}")
